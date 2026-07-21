@@ -74,6 +74,9 @@ export default function AirportGlobe() {
   const [model, setModel] = useState("gpt-5.4-mini");
   const [image, setImage] = useState<File | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const visible = useMemo(() => airports.filter(a => {
@@ -137,6 +140,7 @@ export default function AirportGlobe() {
       form.append("airportName", airport.name);
       form.append("message", text);
       form.append("model", model);
+      form.append("apiKey", apiKey);
       const response = await fetch("/api/analyze", { method: "POST", body: form });
       const result = await response.json() as Assessment & { error?: string };
       if (!response.ok) throw new Error(result.error || "Image analysis failed.");
@@ -181,13 +185,13 @@ export default function AirportGlobe() {
       <aside className="rail">
         <button className="rail-btn active" aria-label="Globe">◉</button><button className="rail-btn" aria-label="Routes">⌁</button><button className="rail-btn" aria-label="Airfields">⌖</button>
         <span className="rail-line" />
-        <button className="rail-btn" aria-label="Layers">▱</button><button className="rail-btn" aria-label="Settings">⚙</button>
+        <button className="rail-btn" aria-label="Layers">▱</button><button className={`rail-btn ${settingsOpen ? "active" : ""}`} aria-label="Settings" aria-pressed={settingsOpen} onClick={() => setSettingsOpen(v => !v)}>⚙</button>
         <button className="rail-btn help" aria-label="Help">?</button>
       </aside>
 
       <div className="map-stage">
         <div className="map-heading"><div><span className="eyebrow">OPERATIONS OVERVIEW</span><h1>Pacific Air Mobility</h1><p>{visible.filter(a => a.operational_status !== "temporarily_unavailable").length} airfields online · Session data</p></div>
-          <div className="location-control"><label><span>⌾ CURRENT LOCATION</span><select value={currentAirport} onChange={e => { setCurrentAirport(e.target.value); setSelected(e.target.value); }}><option value="">Select an airfield</option>{airports.filter(a => a.latitude != null).sort((a,b) => a.name.localeCompare(b.name)).map(a => <option key={a.ycao} value={a.ycao}>{a.ycao} · {a.name}</option>)}</select></label><button className="session-pill"><i /> {changes ? `${changes} SESSION CHANGE${changes > 1 ? "S" : ""}` : "ORIGINAL DATA"}</button></div>
+          <button className="session-pill"><i /> {changes ? `${changes} SESSION CHANGE${changes > 1 ? "S" : ""}` : "ORIGINAL DATA"}</button>
         </div>
         <div className="globe-wrap"><div className="orbit one"/><div className="orbit two"/><GlobeMap airports={visible} selected={selected} onSelect={setSelected} onHover={setHovered} /></div>
         <div className="drag-hint"><span>↔</span> DRAG TO ROTATE · SCROLL TO ZOOM</div>
@@ -202,6 +206,13 @@ export default function AirportGlobe() {
         <section><h3>Ground capabilities</h3><div className="capabilities">{CAP_FIELDS.map(field => active[field] == null ? null : <div key={field}><span className={active[field] ? "yes" : "no"}>{active[field] ? "✓" : "×"}</span><b>{LABELS[field]}</b><small>{active[field] ? "AVAILABLE" : "NOT AVAILABLE"}</small></div>)}</div></section>
         <section><h3>Location</h3><div className="location"><span>LATITUDE<b>{active.latitude == null ? "—" : `${Math.abs(active.latitude).toFixed(2)}° ${active.latitude >= 0 ? "N" : "S"}`}</b></span><span>LONGITUDE<b>{active.longitude == null ? "—" : `${Math.abs(active.longitude).toFixed(2)}° ${active.longitude >= 0 ? "E" : "W"}`}</b></span></div></section>
         <button className="ask" onClick={() => { setChatOpen(true); setInput(`Tell me about ${active.ycao}`); }}>✦ Ask Atlas about this airfield</button>
+      </aside>}
+      {settingsOpen && <aside className="settings-drawer">
+        <div className="settings-head"><div><span className="eyebrow">SESSION CONFIGURATION</span><h2>Settings</h2></div><button onClick={() => setSettingsOpen(false)}>×</button></div>
+        <section><label className="settings-label"><span>⌾ CURRENT LOCATION</span><small>Used when you refer to “this airport” in chat.</small><select value={currentAirport} onChange={e => { setCurrentAirport(e.target.value); if (e.target.value) setSelected(e.target.value); }}><option value="">Select an airfield</option>{airports.filter(a => a.latitude != null).sort((a,b) => a.name.localeCompare(b.name)).map(a => <option key={a.ycao} value={a.ycao}>{a.ycao} · {a.name}</option>)}</select></label></section>
+        <section><label className="settings-label"><span>OPENAI API KEY</span><small>Required for image analysis. Kept only in memory for this browser session.</small><div className="key-input"><input type={showKey ? "text" : "password"} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-…" autoComplete="off" spellCheck={false}/><button type="button" onClick={() => setShowKey(v => !v)}>{showKey ? "HIDE" : "SHOW"}</button></div></label><div className={`key-status ${apiKey ? "ready" : ""}`}><i/>{apiKey ? "Session key ready" : "No session key configured"}</div></section>
+        <div className="security-note"><b>Session-only security</b><p>The key is not saved to local storage, cookies, airport data, or application logs. It is sent only with analysis requests and is cleared when this page closes.</p></div>
+        {apiKey && <button className="clear-key" onClick={() => { setApiKey(""); setShowKey(false); }}>Clear API key</button>}
       </aside>}
     </section>
 

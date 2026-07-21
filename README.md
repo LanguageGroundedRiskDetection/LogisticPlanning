@@ -30,6 +30,8 @@ OPENAI_API_KEY=your_openai_api_key
 
 The key is used only by the server-side `/api/analyze` endpoint. Never place it in client code or commit `.env.local`.
 
+Alternatively, each user can open the in-app Settings drawer and enter their own API key. A user-provided key remains only in that browser tab's memory, is sent with image-analysis requests, and is cleared when the page closes. It is not saved in local storage, cookies, airport data, or the repository. A server-side `OPENAI_API_KEY` acts as an optional fallback when the user has not supplied a session key.
+
 ## Production build
 
 ```bash

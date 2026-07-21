@@ -10,12 +10,15 @@ const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "i
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return Response.json({ error: "Image intelligence is not configured. Add OPENAI_API_KEY to the server environment." }, { status: 503 });
-    }
-
     const form = await request.formData();
+    const sessionApiKey = String(form.get("apiKey") || "").trim();
+    const apiKey = sessionApiKey || process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return Response.json({ error: "Add an OpenAI API key in Settings to enable image intelligence." }, { status: 503 });
+    }
+    if (!apiKey.startsWith("sk-")) {
+      return Response.json({ error: "The API key format is not recognized. Check the key in Settings." }, { status: 400 });
+    }
     const image = form.get("image");
     const airportCode = String(form.get("airportCode") || "").trim().toUpperCase();
     const airportName = String(form.get("airportName") || "").trim();

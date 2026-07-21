@@ -88,3 +88,43 @@
   .location-control label { min-width: 210px; }
   .location-control .session-pill { display: none; }
 }
+
+.settings-drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 64px;
+  z-index: 45;
+  width: 340px;
+  padding: 25px 22px;
+  overflow-y: auto;
+  background: rgba(8, 15, 18, .98);
+  border-right: 1px solid rgba(153, 194, 198, .18);
+  box-shadow: 24px 0 60px rgba(0, 0, 0, .42);
+  backdrop-filter: blur(20px);
+}
+
+.settings-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
+.settings-head h2 { margin: 7px 0 0; font-size: 23px; font-weight: 500; }
+.settings-head button { color: #6f8388; background: transparent; border: 0; font-size: 22px; cursor: pointer; }
+.settings-drawer section { padding: 20px 0; border-top: 1px solid var(--line); }
+.settings-label > span { display: block; margin-bottom: 6px; color: #6bd9d2; font-size: 8px; letter-spacing: 1.3px; }
+.settings-label > small { display: block; margin-bottom: 12px; color: #6e8288; font-size: 8px; line-height: 1.5; }
+.settings-label select,
+.key-input { width: 100%; min-height: 42px; color: #d8e5e6; background: #101c21; border: 1px solid #263b41; border-radius: 4px; }
+.settings-label select { padding: 0 11px; outline: 0; font-size: 10px; }
+.key-input { display: flex; align-items: center; }
+.key-input input { min-width: 0; flex: 1; padding: 0 11px; color: #d8e5e6; background: transparent; border: 0; outline: 0; font: 10px monospace; }
+.key-input button { align-self: stretch; padding: 0 10px; color: #68d6cf; background: #14272b; border: 0; border-left: 1px solid #263b41; font-size: 7px; letter-spacing: .8px; cursor: pointer; }
+.key-status { display: flex; align-items: center; gap: 7px; margin-top: 9px; color: #71858a; font-size: 8px; }
+.key-status i { width: 6px; height: 6px; background: #59666a; border-radius: 50%; }
+.key-status.ready { color: #70d8a6; }
+.key-status.ready i { background: #4ee3a2; box-shadow: 0 0 8px #4ee3a2; }
+.security-note { margin-top: 10px; padding: 13px; background: #0f2023; border: 1px solid #234146; border-left: 3px solid #52cfc7; }
+.security-note b { color: #8ce4df; font-size: 9px; }
+.security-note p { margin: 7px 0 0; color: #74898e; font-size: 8px; line-height: 1.55; }
+.clear-key { width: 100%; margin-top: 14px; padding: 9px; color: #d799a2; background: #28191d; border: 1px solid #533039; font-size: 8px; cursor: pointer; }
+
+@media (max-width: 760px) {
+  .settings-drawer { left: 0; width: min(92vw, 360px); }
+}
