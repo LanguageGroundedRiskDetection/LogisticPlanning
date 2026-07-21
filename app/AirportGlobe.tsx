@@ -1,7 +1,11 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import sourceAirports from "../database/airports.json";
+import "./globe.css";
+
+const Globe = dynamic(() => import("react-globe.gl"), { ssr: false });
 
 type Airport = (typeof sourceAirports)[number];
 type Message = { role: "assistant" | "user"; text: string; proposal?: { code: string; field: keyof Airport; value: unknown } };
@@ -14,23 +18,44 @@ function normalize(a: Airport): Airport {
   return { ...a, parking: a.parking ?? 0, country: a.country === "Phillipines" ? "Philippines" : a.country === "South Korea" ? "Korea (South)" : a.country };
 }
 
-function coordinates(a: Airport, rotation: number) {
-  if (a.latitude == null || a.longitude == null) return null;
-  const lat = a.latitude * Math.PI / 180;
-  const lon = (a.longitude - rotation) * Math.PI / 180;
-  const x = Math.cos(lat) * Math.sin(lon);
-  const y = -Math.sin(lat);
-  const z = Math.cos(lat) * Math.cos(lon);
-  return { left: 50 + x * 47, top: 50 + y * 47, visible: z > -0.08, scale: .72 + Math.max(z, 0) * .35 };
-}
-
 function Icon({ children }: { children: React.ReactNode }) { return <span className="icon">{children}</span>; }
+
+function GlobeMap({ airports, selected, onSelect, onHover }: { airports: Airport[]; selected: string | null; onSelect: (code: string) => void; onHover: (code: string | null) => void }) {
+  const wrap = useRef<HTMLDivElement>(null);
+  const globe = useRef<any>(null);
+  const [size, setSize] = useState(650);
+  const points = useMemo(() => airports.filter(a => a.latitude != null && a.longitude != null).map(a => ({ ...a, lat: a.latitude!, lng: a.longitude! })), [airports]);
+
+  useEffect(() => {
+    if (!wrap.current) return;
+    const observer = new ResizeObserver(([entry]) => setSize(Math.max(360, Math.min(entry.contentRect.width, entry.contentRect.height))));
+    observer.observe(wrap.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      globe.current?.pointOfView({ lat: 18, lng: 135, altitude: 1.75 }, 700);
+      const controls = globe.current?.controls();
+      if (controls) { controls.enableDamping = true; controls.dampingFactor = .08; controls.autoRotate = false; }
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  function tooltip(raw: object) {
+    const a = raw as Airport;
+    return `<div class="globe-tooltip"><div><b>${a.name}</b><em>${a.ycao}</em></div><p>${a.country} · ${a.hub_spoke === "H" ? "Hub" : "Spoke"}</p><section><span><small>AIRCRAFT</small>${a.runway_capability}</span><span><small>MAX WORKING</small>${a.max_working ?? "—"}</span><span><small>PARKED</small>${a.parking ?? 0}</span></section><footer>Click for full airfield profile</footer></div>`;
+  }
+
+  return <div className="true-globe" ref={wrap}>
+    <Globe ref={globe} width={size} height={size} backgroundColor="rgba(0,0,0,0)" globeImageUrl="https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg" bumpImageUrl="https://unpkg.com/three-globe/example/img/earth-topology.png" atmosphereColor="#6edbd6" atmosphereAltitude={.16} pointsData={points} pointLat="lat" pointLng="lng" pointAltitude={(p: object) => (p as Airport).ycao === selected ? .055 : .025} pointRadius={(p: object) => (p as Airport).hub_spoke === "H" ? .24 : .17} pointColor={(p: object) => COLORS[(p as Airport).runway_capability]} pointLabel={tooltip} onPointHover={(p: object | null) => onHover(p ? (p as Airport).ycao : null)} onPointClick={(p: object) => onSelect((p as Airport).ycao)} ringsData={points.filter(a => a.hub_spoke === "H" || a.ycao === selected)} ringLat="lat" ringLng="lng" ringColor={() => ["rgba(99,220,213,.75)", "rgba(99,220,213,0)"]} ringMaxRadius={1.1} ringPropagationSpeed={.8} ringRepeatPeriod={1700} />
+  </div>;
+}
 
 export default function AirportGlobe() {
   const [airports, setAirports] = useState<Airport[]>(() => sourceAirports.map(normalize));
   const [selected, setSelected] = useState<string | null>("RJTY");
   const [hovered, setHovered] = useState<string | null>(null);
-  const [rotation, setRotation] = useState(130);
   const [aircraft, setAircraft] = useState("All aircraft");
   const [query, setQuery] = useState("");
   const [chat, setChat] = useState<Message[]>([{ role: "assistant", text: "Good evening. I can compare airfields or prepare session-only database changes. Try “show C-17 airports with refueling” or “set RJTY parking to 5”." }]);
@@ -45,7 +70,6 @@ export default function AirportGlobe() {
     return matches && (aircraft === "All aircraft" || (rank[a.runway_capability] || 0) >= (rank[aircraft] || 0));
   }), [airports, aircraft, query]);
   const active = airports.find(a => a.ycao === selected);
-  const hover = airports.find(a => a.ycao === hovered);
 
   function respond(raw: string) {
     const text = raw.trim();
@@ -97,15 +121,8 @@ export default function AirportGlobe() {
         <div className="map-heading"><div><span className="eyebrow">OPERATIONS OVERVIEW</span><h1>Pacific Air Mobility</h1><p>{visible.length} airfields online · Session data</p></div>
           <button className="session-pill"><i /> {changes ? `${changes} SESSION CHANGE${changes > 1 ? "S" : ""}` : "ORIGINAL DATA"}</button>
         </div>
-        <div className="globe-wrap">
-          <div className="orbit one"/><div className="orbit two"/>
-          <div className="globe" style={{ backgroundPositionX: `${rotation * 2.1}px` }}>
-            <div className="globe-shade" />
-            {visible.map(a => { const p = coordinates(a, rotation); if (!p?.visible) return null; return <button key={a.ycao} className={`marker ${a.hub_spoke === "H" ? "hub" : ""} ${selected === a.ycao ? "selected" : ""}`} style={{ left: `${p.left}%`, top: `${p.top}%`, transform: `translate(-50%,-50%) scale(${p.scale})`, "--marker": COLORS[a.runway_capability] } as React.CSSProperties} onMouseEnter={() => setHovered(a.ycao)} onMouseLeave={() => setHovered(null)} onClick={() => setSelected(a.ycao)} aria-label={a.name}><span/><em>{a.ycao}</em></button> })}
-            {hover && coordinates(hover, rotation)?.visible && <div className="hover-card" style={{ left: `${coordinates(hover, rotation)!.left}%`, top: `${coordinates(hover, rotation)!.top}%` }}><div className="hover-top"><b>{hover.name}</b><span>{hover.ycao}</span></div><p>{hover.country} · {hover.hub_spoke === "H" ? "Hub" : "Spoke"}</p><div className="hover-stats"><span><small>AIRCRAFT</small>{hover.runway_capability}</span><span><small>WORKING</small>{hover.max_working ?? "—"}</span><span><small>PARKED</small>{hover.parking ?? 0}</span></div></div>}
-          </div>
-        </div>
-        <div className="globe-controls"><button onClick={() => setRotation(r => r - 12)}>‹</button><button onClick={() => setRotation(130)} title="Reset globe">◎</button><button onClick={() => setRotation(r => r + 12)}>›</button></div>
+        <div className="globe-wrap"><div className="orbit one"/><div className="orbit two"/><GlobeMap airports={visible} selected={selected} onSelect={setSelected} onHover={setHovered} /></div>
+        <div className="drag-hint"><span>↔</span> DRAG TO ROTATE · SCROLL TO ZOOM</div>
         <div className="filter-bar"><div className="select-wrap"><span>AIRCRAFT COMPATIBILITY</span><select value={aircraft} onChange={e => setAircraft(e.target.value)}><option>All aircraft</option><option>C-130</option><option>C-17</option><option>C-5</option></select></div><div className="legend"><span><i className="dot c5"/>C-5</span><span><i className="dot c17"/>C-17</span><span><i className="dot c130"/>C-130</span><span className="divider"/><span><i className="hub-shape"/>Hub</span><span><i className="spoke-shape"/>Spoke</span></div></div>
       </div>
 

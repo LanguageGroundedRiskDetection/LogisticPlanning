@@ -1,0 +1,47 @@
+.true-globe {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  z-index: 2;
+}
+
+.true-globe:active { cursor: grabbing; }
+.true-globe canvas { outline: none; }
+.orbit { pointer-events: none; }
+.scene-tooltip { z-index: 100 !important; }
+
+.globe-tooltip {
+  width: 238px;
+  padding: 13px 14px;
+  color: #dce8e9;
+  background: rgba(7, 16, 20, .97);
+  border: 1px solid rgba(110, 215, 211, .35);
+  border-radius: 5px;
+  box-shadow: 0 12px 35px #000b;
+}
+
+.globe-tooltip > div { display: flex; justify-content: space-between; gap: 10px; }
+.globe-tooltip b { font-size: 12px; }
+.globe-tooltip em { padding: 2px 4px; color: #69d7d0; border: 1px solid #315b5c; font: 9px monospace; font-style: normal; }
+.globe-tooltip p { color: #7f949a; font-size: 9px; }
+.globe-tooltip section { display: flex; padding-top: 10px; border-top: 1px solid var(--line); }
+.globe-tooltip section span { flex: 1; font-size: 12px; font-weight: bold; }
+.globe-tooltip small { display: block; margin-bottom: 4px; color: #64787e; font-size: 7px; }
+.globe-tooltip footer { margin-top: 10px; padding-top: 8px; color: #5ecfc8; border-top: 1px solid var(--line); font-size: 7px; letter-spacing: .7px; }
+
+.drag-hint {
+  position: absolute;
+  left: 30px;
+  bottom: 96px;
+  z-index: 8;
+  padding: 9px 12px;
+  color: #6d858b;
+  background: #0d191dcc;
+  border: 1px solid var(--line);
+  font-size: 7px;
+  letter-spacing: 1.1px;
+}
+
+.drag-hint span { margin-right: 7px; color: #5dd5cd; }
