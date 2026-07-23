@@ -14,8 +14,24 @@ type Airport = (typeof sourceAirports)[number] & {
   status_updated_at?: string;
 };
 type Proposal = { code: string; patch: Partial<Airport>; summary: string };
-type Message = { role: "assistant" | "user"; text: string; confidence?: number; proposal?: Proposal; imageName?: string };
-type Assessment = { action: "disable_airport" | "reopen_airport" | "none" | "clarify"; confidence: number; hazard: string; evidence: string[]; clarification: string; summary: string; model: string; airportCode: string };
+type Scores = { extraction: number; update: number };
+type Message = { role: "assistant" | "user"; text: string; confidence?: number; scores?: Scores; proposal?: Proposal; imageName?: string };
+type Assessment = {
+  selected_intent: "extract" | "update" | "clarify";
+  confidence: number;
+  extraction_confidence: number;
+  update_confidence: number;
+  answer: string;
+  clarification: string;
+  target_airport_code: string;
+  update_field: "parking" | "max_working" | "number_of_runways" | "refueling_capabilities" | "maintenance_capabilities" | "operational_status" | "none";
+  update_value: string;
+  update_reason: string;
+  evidence: string[];
+  summary: string;
+  model: string;
+  airportCode: string;
+};
 
 const COLORS: Record<string, string> = { "C-5": "#ffb84d", "C-17": "#55d8ff", "C-130": "#98f5bf", None: "#7f8b9b" };
 const CAP_FIELDS: (keyof Airport)[] = ["maintenance_capabilities", "refueling_capabilities", "material_handling", "additives"];
@@ -90,35 +106,34 @@ export default function AirportGlobe() {
   async function respond(raw: string) {
     const text = raw.trim();
     if (!text && !image) return;
-    if (image) {
-      await analyzeImage(text || "Assess this image for current airfield operating hazards.");
+    const airport = airports.find(a => a.ycao === currentAirport);
+    if (!airport) {
+      setChat(items => [...items, { role: "user", text }, { role: "assistant", text: "Select your current airport in Settings before using Atlas Assistant." }]);
       return;
     }
-    const next: Message[] = [...chat, { role: "user", text, confidence: 1 }];
-    const change = text.match(/(?:set|change|update)\s+([A-Za-z0-9]{4})\s+(parking|max[_ ]?working|runways?|refueling|maintenance)\s+(?:to\s+)?(true|false|\d+)/i);
-    if (change) {
-      const code = change[1].toUpperCase();
-      const airport = airports.find(a => a.ycao === code);
-      const map: Record<string, keyof Airport> = { parking: "parking", maxworking: "max_working", max_working: "max_working", runway: "number_of_runways", runways: "number_of_runways", refueling: "refueling_capabilities", maintenance: "maintenance_capabilities" };
-      const key = change[2].toLowerCase().replace(" ", "_");
-      const field = map[key];
-      if (airport && field) {
-        const value = change[3] === "true" ? true : change[3] === "false" ? false : Number(change[3]);
-        const confidence = 0.98;
-        const proposal = { code, patch: { [field]: value } as Partial<Airport>, summary: `${LABELS[field] || field.replaceAll("_", " ")}: ${String(airport[field] ?? "unknown")} → ${String(value)}` };
-        next.push({ role: "assistant", confidence, text: `Request understood · ${airport.name} (${code})\n${proposal.summary}\nConfidence is above 0.85, so the session change was applied automatically.` });
-        setAirports(items => items.map(a => a.ycao === code ? { ...a, ...proposal.patch } : a));
-        setChanges(c => c + 1); setSelected(code);
-      } else next.push({ role: "assistant", text: `I couldn’t find airfield ${code}. No data was changed.` });
-    } else {
-      const wantsRefuel = /refuel/i.test(text);
-      const cap = text.match(/C-?(5|17|130)/i)?.[0].toUpperCase().replace("C", "C-");
-      const rank: Record<string, number> = { "C-130": 1, "C-17": 2, "C-5": 3 };
-      const found = airports.filter(a => (!wantsRefuel || a.refueling_capabilities === true) && (!cap || (rank[a.runway_capability] || 0) >= rank[cap])).slice(0, 8);
-      const confidence = wantsRefuel || cap ? .93 : .48;
-      next.push({ role: "assistant", confidence, text: confidence > .85 ? (found.length ? `${found.length}${found.length === 8 ? "+" : ""} matching airfields: ${found.map(a => `${a.name} (${a.ycao})`).join(", ")}.` : "I didn’t find any matching airfields in the current session data.") : `I’m not confident I understood the request. Are you asking about ${airports.find(a => a.ycao === currentAirport)?.name || "your current airport"}, or should I search all airfields?` });
+    const uploaded = image;
+    const requestText = text || "Assess this image and determine whether I am asking to extract information or update the session airport data.";
+    setChat(items => [...items, { role: "user", text: requestText, imageName: uploaded?.name }]);
+    setAnalyzing(true);
+    try {
+      const form = new FormData();
+      if (uploaded) form.append("image", uploaded);
+      form.append("airportCode", airport.ycao);
+      form.append("airportName", airport.name);
+      form.append("message", requestText);
+      form.append("model", model);
+      form.append("apiKey", apiKey);
+      form.append("airports", JSON.stringify(airports));
+      const response = await fetch("/api/analyze", { method: "POST", body: form });
+      const result = await response.json() as Assessment & { error?: string };
+      if (!response.ok) throw new Error(result.error || "The request could not be analyzed.");
+      handleAssessment(result);
+    } catch (error) {
+      setChat(items => [...items, { role: "assistant", confidence: 0, text: error instanceof Error ? error.message : "The request could not be analyzed." }]);
+    } finally {
+      setAnalyzing(false); setImage(null); setInput("");
+      if (fileInput.current) fileInput.current.value = "";
     }
-    setChat(next); setInput("");
   }
 
   function applyChange(p: NonNullable<Message["proposal"]>) {
@@ -127,46 +142,52 @@ export default function AirportGlobe() {
     setChat(items => [...items, { role: "assistant", text: `Applied. ${p.code} is updated everywhere on the globe for this session.` }]);
   }
 
-  async function analyzeImage(text: string) {
-    const airport = airports.find(a => a.ycao === currentAirport);
-    if (!airport || !image) return;
-    const uploaded = image;
-    setChat(items => [...items, { role: "user", text, imageName: uploaded.name, confidence: 1 }]);
-    setAnalyzing(true);
-    try {
-      const form = new FormData();
-      form.append("image", uploaded);
-      form.append("airportCode", airport.ycao);
-      form.append("airportName", airport.name);
-      form.append("message", text);
-      form.append("model", model);
-      form.append("apiKey", apiKey);
-      const response = await fetch("/api/analyze", { method: "POST", body: form });
-      const result = await response.json() as Assessment & { error?: string };
-      if (!response.ok) throw new Error(result.error || "Image analysis failed.");
-      const confidence = Math.max(0, Math.min(1, result.confidence));
-      const evidence = result.evidence.length ? `\nVisible evidence: ${result.evidence.join("; ")}` : "";
-      if (result.action === "clarify" || confidence < .6) {
-        setChat(items => [...items, { role: "assistant", confidence, text: `${result.summary}${evidence}\n${result.clarification || "Can you clarify when and where this image was captured?"}` }]);
-      } else if (result.action === "disable_airport" || result.action === "reopen_airport") {
-        const disabling = result.action === "disable_airport";
-        const proposal: Proposal = { code: airport.ycao, patch: disabling ? { operational_status: "temporarily_unavailable", status_reason: result.hazard || result.summary, status_confidence: confidence, status_updated_at: new Date().toISOString() } : { operational_status: "operational", status_reason: undefined, status_confidence: confidence, status_updated_at: new Date().toISOString() }, summary: disabling ? `Temporarily disable ${airport.ycao} until manually reopened` : `Reopen ${airport.ycao}` };
-        if (confidence > .85) {
-          setAirports(items => items.map(a => a.ycao === proposal.code ? { ...a, ...proposal.patch } : a));
-          setChanges(c => c + 1); setSelected(proposal.code);
-          setChat(items => [...items, { role: "assistant", confidence, text: `${result.summary}${evidence}\nConfidence is above 0.85. ${proposal.summary} was applied automatically.` }]);
-        } else {
-          setChat(items => [...items, { role: "assistant", confidence, proposal, text: `${result.summary}${evidence}\nConfidence does not exceed 0.85. Confirm before applying: ${proposal.summary}.` }]);
-        }
-      } else {
-        setChat(items => [...items, { role: "assistant", confidence, text: `${result.summary}${evidence}\nNo operational change was made.` }]);
-      }
-    } catch (error) {
-      setChat(items => [...items, { role: "assistant", confidence: 0, text: error instanceof Error ? error.message : "The image could not be analyzed." }]);
-    } finally {
-      setAnalyzing(false); setImage(null); setInput("");
-      if (fileInput.current) fileInput.current.value = "";
+  function handleAssessment(result: Assessment) {
+    const extraction = Math.max(0, Math.min(1, result.extraction_confidence));
+    const update = Math.max(0, Math.min(1, result.update_confidence));
+    const confidence = Math.max(extraction, update);
+    const scores = { extraction, update };
+    const evidence = result.evidence.length ? `\nEvidence: ${result.evidence.join("; ")}` : "";
+    if (result.selected_intent === "clarify" || confidence < .6) {
+      setChat(items => [...items, { role: "assistant", confidence, scores, text: `${result.summary}${evidence}\n${result.clarification || "Could you clarify the information or change you want?"}` }]);
+      return;
     }
+    if (result.selected_intent === "extract") {
+      const text = confidence > .85
+        ? (result.answer || result.summary)
+        : `${result.summary}${evidence}\n${result.clarification || "Please confirm what information you want me to extract."}`;
+      setChat(items => [...items, { role: "assistant", confidence, scores, text }]);
+      return;
+    }
+    const target = airports.find(a => a.ycao === result.target_airport_code);
+    const proposal = target ? proposalFromAssessment(target, result, confidence) : null;
+    if (!proposal) {
+      setChat(items => [...items, { role: "assistant", confidence, scores, text: `${result.summary}\n${result.clarification || "I could not form a valid database update. Please specify the airport, field, and new value."}` }]);
+    } else if (confidence > .85) {
+      setAirports(items => items.map(a => a.ycao === proposal.code ? { ...a, ...proposal.patch } : a));
+      setChanges(c => c + 1); setSelected(proposal.code);
+      setChat(items => [...items, { role: "assistant", confidence, scores, text: `${result.summary}${evidence}\nSelected update confidence is above 0.85. ${proposal.summary} was applied automatically.` }]);
+    } else {
+      setChat(items => [...items, { role: "assistant", confidence, scores, proposal, text: `${result.summary}${evidence}\nPlease confirm this session change: ${proposal.summary}.` }]);
+    }
+  }
+
+  function proposalFromAssessment(target: Airport, result: Assessment, confidence: number): Proposal | null {
+    const field = result.update_field;
+    if (field === "none") return null;
+    let value: number | boolean | string;
+    if (["parking", "max_working", "number_of_runways"].includes(field)) {
+      value = Number(result.update_value);
+      if (!Number.isFinite(value) || value < 0) return null;
+    } else if (["refueling_capabilities", "maintenance_capabilities"].includes(field)) {
+      if (!["true", "false"].includes(result.update_value.toLowerCase())) return null;
+      value = result.update_value.toLowerCase() === "true";
+    } else {
+      if (!["operational", "temporarily_unavailable"].includes(result.update_value)) return null;
+      const unavailable = result.update_value === "temporarily_unavailable";
+      return { code: target.ycao, patch: { operational_status: unavailable ? "temporarily_unavailable" : "operational", status_reason: unavailable ? result.update_reason || result.summary : undefined, status_confidence: confidence, status_updated_at: new Date().toISOString() }, summary: unavailable ? `Temporarily disable ${target.ycao} until manually reopened` : `Reopen ${target.ycao}` };
+    }
+    return { code: target.ycao, patch: { [field]: value } as Partial<Airport>, summary: `${LABELS[field] || field.replaceAll("_", " ")}: ${String(target[field] ?? "unknown")} → ${String(value)}` };
   }
 
   function reopenAirport(code: string) {
@@ -210,7 +231,7 @@ export default function AirportGlobe() {
       {settingsOpen && <aside className="settings-drawer">
         <div className="settings-head"><div><span className="eyebrow">SESSION CONFIGURATION</span><h2>Settings</h2></div><button onClick={() => setSettingsOpen(false)}>×</button></div>
         <section><label className="settings-label"><span>⌾ CURRENT LOCATION</span><small>Used when you refer to “this airport” in chat.</small><select value={currentAirport} onChange={e => { setCurrentAirport(e.target.value); if (e.target.value) setSelected(e.target.value); }}><option value="">Select an airfield</option>{airports.filter(a => a.latitude != null).sort((a,b) => a.name.localeCompare(b.name)).map(a => <option key={a.ycao} value={a.ycao}>{a.ycao} · {a.name}</option>)}</select></label></section>
-        <section><label className="settings-label"><span>OPENAI API KEY</span><small>Required for image analysis. Kept only in memory for this browser session.</small><div className="key-input"><input type={showKey ? "text" : "password"} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-…" autoComplete="off" spellCheck={false}/><button type="button" onClick={() => setShowKey(v => !v)}>{showKey ? "HIDE" : "SHOW"}</button></div></label><div className={`key-status ${apiKey ? "ready" : ""}`}><i/>{apiKey ? "Session key ready" : "No session key configured"}</div></section>
+        <section><label className="settings-label"><span>OPENAI API KEY</span><small>Required for text and image intelligence. Kept only in memory for this browser session.</small><div className="key-input"><input type={showKey ? "text" : "password"} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-…" autoComplete="off" spellCheck={false}/><button type="button" onClick={() => setShowKey(v => !v)}>{showKey ? "HIDE" : "SHOW"}</button></div></label><div className={`key-status ${apiKey ? "ready" : ""}`}><i/>{apiKey ? "Session key ready" : "No session key configured"}</div></section>
         <div className="security-note"><b>Session-only security</b><p>The key is not saved to local storage, cookies, airport data, or application logs. It is sent only with analysis requests and is cleared when this page closes.</p></div>
         {apiKey && <button className="clear-key" onClick={() => { setApiKey(""); setShowKey(false); }}>Clear API key</button>}
       </aside>}
@@ -218,7 +239,7 @@ export default function AirportGlobe() {
 
     <section className={`chat-panel ${chatOpen ? "open" : ""}`}>
       <button className="chat-toggle" onClick={() => setChatOpen(!chatOpen)}><span>✦</span><b>Atlas Assistant</b><i>{chatOpen ? "×" : "↑"}</i></button>
-      {chatOpen && <><div className="chat-head"><div><span className="ai-glyph">✦</span><div><b>Atlas Assistant</b><small><i/> AIRFIELD INTELLIGENCE</small></div></div><button onClick={() => setChatOpen(false)}>—</button></div><div className="model-bar"><label>VISION MODEL<select value={model} onChange={e => setModel(e.target.value)}><option value="gpt-5.6-terra">GPT-5.6 Terra · Balanced</option><option value="gpt-5.6-luna">GPT-5.6 Luna · Efficient</option><option value="gpt-5.4-mini">GPT-5.4 mini · Fast</option><option value="gpt-5.4-nano">GPT-5.4 nano · Lowest cost</option></select></label><span>{currentAirport || "NO LOCATION"}</span></div><div className="messages">{chat.map((m, i) => <div key={i} className={`message ${m.role}`}><span>{m.role === "assistant" ? "✦" : "YY"}</span><div>{m.imageName && <div className="image-receipt">▧ {m.imageName}<small>Analyzed transiently · not stored</small></div>}<p>{m.text}</p>{m.confidence != null && m.role === "assistant" && <div className={`confidence ${m.confidence > .85 ? "high" : m.confidence >= .6 ? "medium" : "low"}`}><span>CONFIDENCE</span><i><b style={{ width: `${Math.round(m.confidence * 100)}%` }}/></i><em>{Math.round(m.confidence * 100)}%</em></div>}{m.proposal && <button onClick={() => applyChange(m.proposal!)}>Confirm session change</button>}</div></div>)}{analyzing && <div className="message assistant"><span>✦</span><div><p className="thinking">Analyzing visible conditions and request clarity…</p></div></div>}</div>{image && <div className="upload-chip"><span>▧</span><div><b>{image.name}</b><small>{(image.size / 1024 / 1024).toFixed(1)} MB · deleted after analysis</small></div><button onClick={() => { setImage(null); if (fileInput.current) fileInput.current.value = ""; }}>×</button></div>}<form className="chat-input" onSubmit={(e: FormEvent) => { e.preventDefault(); void respond(input); }}><input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden onChange={e => setImage(e.target.files?.[0] || null)}/><button type="button" className="upload-button" onClick={() => fileInput.current?.click()} title="Upload an airfield image">＋</button><input value={input} onChange={e => setInput(e.target.value)} placeholder={image ? "Describe when and where this was taken…" : "Ask or modify session data…"}/><button disabled={analyzing}>↑</button></form><p className="privacy">Images are deleted after analysis · Session edits clear on close.</p></>}
+      {chatOpen && <><div className="chat-head"><div><span className="ai-glyph">✦</span><div><b>Atlas Assistant</b><small><i/> AIRFIELD INTELLIGENCE</small></div></div><button onClick={() => setChatOpen(false)}>—</button></div><div className="model-bar"><label>CHAT & VISION MODEL<select value={model} onChange={e => setModel(e.target.value)}><option value="gpt-5.6-terra">GPT-5.6 Terra · Balanced</option><option value="gpt-5.6-luna">GPT-5.6 Luna · Efficient</option><option value="gpt-5.4-mini">GPT-5.4 mini · Fast</option><option value="gpt-5.4-nano">GPT-5.4 nano · Lowest cost</option></select></label><span>{currentAirport || "NO LOCATION"}</span></div><div className="messages">{chat.map((m, i) => <div key={i} className={`message ${m.role}`}><span>{m.role === "assistant" ? "✦" : "YY"}</span><div>{m.imageName && <div className="image-receipt">▧ {m.imageName}<small>Analyzed transiently · not stored</small></div>}<p>{m.text}</p>{m.scores && <div className="intent-scores"><span>EXTRACT <b>{Math.round(m.scores.extraction * 100)}%</b></span><span>UPDATE <b>{Math.round(m.scores.update * 100)}%</b></span></div>}{m.confidence != null && m.role === "assistant" && <div className={`confidence ${m.confidence > .85 ? "high" : m.confidence >= .6 ? "medium" : "low"}`}><span>SELECTED CONFIDENCE</span><i><b style={{ width: `${Math.round(m.confidence * 100)}%` }}/></i><em>{Math.round(m.confidence * 100)}%</em></div>}{m.proposal && <button onClick={() => applyChange(m.proposal!)}>Confirm session change</button>}</div></div>)}{analyzing && <div className="message assistant"><span>✦</span><div><p className="thinking">Comparing extraction and update confidence…</p></div></div>}</div>{image && <div className="upload-chip"><span>▧</span><div><b>{image.name}</b><small>{(image.size / 1024 / 1024).toFixed(1)} MB · deleted after analysis</small></div><button onClick={() => { setImage(null); if (fileInput.current) fileInput.current.value = ""; }}>×</button></div>}<form className="chat-input" onSubmit={(e: FormEvent) => { e.preventDefault(); void respond(input); }}><input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden onChange={e => setImage(e.target.files?.[0] || null)}/><button type="button" className="upload-button" onClick={() => fileInput.current?.click()} title="Upload an airfield image">＋</button><input value={input} onChange={e => setInput(e.target.value)} placeholder={image ? "Describe when and where this was taken…" : "Ask or modify session data…"}/><button disabled={analyzing}>↑</button></form><p className="privacy">Images are deleted after analysis · Session edits clear on close.</p></>}
     </section>
   </main>;
 }

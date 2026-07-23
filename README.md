@@ -18,7 +18,7 @@ pnpm dev
 
 Open the local URL printed in the terminal. Development changes reload automatically.
 
-Copy `.env.example` to `.env.local` and add an OpenAI API key to enable image analysis:
+Copy `.env.example` to `.env.local` and add an OpenAI API key to enable AI chat and image analysis:
 
 ```bash
 cp .env.example .env.local
@@ -30,7 +30,7 @@ OPENAI_API_KEY=your_openai_api_key
 
 The key is used only by the server-side `/api/analyze` endpoint. Never place it in client code or commit `.env.local`.
 
-Alternatively, each user can open the in-app Settings drawer and enter their own API key. A user-provided key remains only in that browser tab's memory, is sent with image-analysis requests, and is cleared when the page closes. It is not saved in local storage, cookies, airport data, or the repository. A server-side `OPENAI_API_KEY` acts as an optional fallback when the user has not supplied a session key.
+Alternatively, each user can open the in-app Settings drawer and enter their own API key. A user-provided key remains only in that browser tab's memory, is sent with chat-analysis requests, and is cleared when the page closes. It is not saved in local storage, cookies, airport data, or the repository. A server-side `OPENAI_API_KEY` acts as an optional fallback when the user has not supplied a session key.
 
 ## Production build
 
@@ -53,11 +53,12 @@ The source dataset is `database/airports.json`. Application rules:
 - Users select a current airfield so chat references such as “this airport” have explicit context.
 - Image assessments are processed in memory and are not saved after analysis.
 - Operational closures are session-only and remain until manually reopened or the browser session ends.
-- Assessments above 0.85 confidence apply directly. Medium-confidence changes require confirmation, and low-confidence requests trigger clarification.
+- Every text or image request receives separate extraction and update confidence scores from the selected model. The higher score determines both the selected intent and the displayed confidence.
+- Selected confidence above 0.85 answers extraction requests or directly applies updates. Medium-confidence updates require confirmation; lower-confidence or ambiguous requests trigger clarification.
 
 ## Vision models
 
-Users can select GPT-5.6 Terra, GPT-5.6 Luna, GPT-5.4 mini, or GPT-5.4 nano in the chat panel. All selections use image input through the OpenAI Responses API. Model availability and API usage charges depend on the API project associated with `OPENAI_API_KEY`.
+Users can select GPT-5.6 Terra, GPT-5.6 Luna, GPT-5.4 mini, or GPT-5.4 nano in the chat panel. The same selected model evaluates text and image requests through the OpenAI Responses API. Model availability and API usage charges depend on the API project associated with `OPENAI_API_KEY`.
 
 ## Deployment options
 
@@ -69,7 +70,7 @@ This repository is linked to OpenAI Sites through `.openai/hosting.json`.
 
 1. Run `pnpm build` and confirm it succeeds.
 2. In Codex, ask to publish or deploy the site with Sites.
-3. Add `OPENAI_API_KEY` to the Site's server environment variables when image analysis is required.
+3. Add `OPENAI_API_KEY` to the Site's server environment variables when AI chat or image analysis is required.
 4. Codex saves the validated source as a new site version and deploys it.
 5. Open the resulting `chatgpt.site` production URL.
 

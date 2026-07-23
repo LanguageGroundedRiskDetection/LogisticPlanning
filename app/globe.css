@@ -66,6 +66,9 @@
 .model-bar > span { padding: 5px 6px; color: #62d8d0; background: #102623; border: 1px solid #25514d; font: 8px monospace; }
 .image-receipt { margin-bottom: 5px; padding: 8px; color: #74dcd5; background: #10282a; border: 1px solid #245355; border-radius: 4px; font-size: 9px; }
 .image-receipt small { display: block; margin-top: 3px; color: #668085; font-size: 7px; }
+.intent-scores { display: flex; gap: 5px; margin-top: 6px; }
+.intent-scores span { flex: 1; padding: 5px 6px; color: #71858a; background: #0c171b; border: 1px solid var(--line); font-size: 6px; letter-spacing: .7px; }
+.intent-scores b { float: right; color: #9fc9c5; font: 7px monospace; }
 .confidence { display: flex; align-items: center; gap: 6px; margin-top: 6px; padding: 6px 7px; background: #0c171b; border: 1px solid var(--line); }
 .confidence > span { color: #697d82; font-size: 6px; letter-spacing: .8px; }
 .confidence > i { flex: 1; height: 3px; overflow: hidden; background: #263238; border-radius: 3px; }
